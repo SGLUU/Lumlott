@@ -106,6 +106,9 @@ export default function DrawingMachineCanvas({
   const ballInstancesRef = useRef<PhysicsBallInstance[]>([]);
   const extractedResultsRef = useRef<ExtractedBallResult[]>([]);
 
+  const configRef = useRef<MachineConfig>(config);
+  configRef.current = config;
+
   const machineStateRef = useRef<MachineState>(machineState);
   machineStateRef.current = machineState;
 
@@ -465,18 +468,19 @@ export default function DrawingMachineCanvas({
 
         // Set up validation callback when a ball enters the extraction sensor
         physics.onBallValidation = (candidateBall: DrawingBall) => {
+          const cfg = configRef.current;
           const alreadyDrawn = new Set(extractedResultsRef.current.map((r) => r.ball.number));
           if (alreadyDrawn.has(candidateBall.number)) {
             return { accept: false, reason: `Bóng ${candidateBall.formatted} đã được rút trước đó` };
           }
 
           const currentSlot = extractedResultsRef.current.length;
-          if (currentSlot >= config.pickCount) {
+          if (currentSlot >= cfg.pickCount) {
             return { accept: false, reason: "Đã đủ số kết quả" };
           }
 
-          if (config.enableRangeLimits && config.rangeLimits) {
-            const limit = config.rangeLimits[currentSlot] || { min: 1, max: config.totalBalls };
+          if (cfg.enableRangeLimits && cfg.rangeLimits) {
+            const limit = cfg.rangeLimits[currentSlot] || { min: 1, max: cfg.totalBalls };
             if (candidateBall.number < limit.min || candidateBall.number > limit.max) {
               const minFmt = limit.min.toString().padStart(2, "0");
               const maxFmt = limit.max.toString().padStart(2, "0");
@@ -490,10 +494,10 @@ export default function DrawingMachineCanvas({
             const canComplete = canCompleteRemainingSlots(
               candidateBall.number,
               currentSlot,
-              config.pickCount,
+              cfg.pickCount,
               alreadyDrawn,
-              config.rangeLimits,
-              config.totalBalls,
+              cfg.rangeLimits,
+              cfg.totalBalls,
               true
             );
 
@@ -510,6 +514,7 @@ export default function DrawingMachineCanvas({
 
         // Set up callback when a ball physically enters the extraction sensor and is ACCEPTED
         physics.onBallCaptured = (capturedBall: DrawingBall) => {
+          const cfg = configRef.current;
           const instance = ballInstancesRef.current.find(
             (b) => b.ball.id === capturedBall.id
           );
@@ -524,7 +529,7 @@ export default function DrawingMachineCanvas({
           const chuteEnd = chutePath.getPointAt(1.0);
 
           const slotPositions = machineComponentsRef.current?.traySlotPositions || [];
-          const targetSlotPos = slotPositions[slotIndex] || new THREE.Vector3(0, -1.095, config.drumDepth / 2 + 0.55);
+          const targetSlotPos = slotPositions[slotIndex] || new THREE.Vector3(0, -1.095, cfg.drumDepth / 2 + 0.55);
 
           // Find the rightmost landing position on the tray (drops on the rightmost slot first)
           const sameRowSlots = slotPositions.filter((s) => Math.abs(s.z - targetSlotPos.z) < 0.08);
@@ -555,10 +560,11 @@ export default function DrawingMachineCanvas({
 
         // Set up callback when a ball is REJECTED (Outside range / Matching failure)
         physics.onBallRejected = (rejectedBall: DrawingBall, reason: string, inst: PhysicsBallInstance) => {
+          const cfg = configRef.current;
           const slotIndex = extractedResultsRef.current.length;
           const captureGateAngle = -Math.PI * 0.27;
-          const captureX = Math.cos(captureGateAngle) * config.drumRadius;
-          const captureY = Math.sin(captureGateAngle) * config.drumRadius;
+          const captureX = Math.cos(captureGateAngle) * cfg.drumRadius;
+          const captureY = Math.sin(captureGateAngle) * cfg.drumRadius;
 
           const returnP0 = new THREE.Vector3(captureX, captureY, 0);
           const returnP1 = new THREE.Vector3(captureX * 0.85, captureY + 0.35, 0.05);
@@ -603,10 +609,10 @@ export default function DrawingMachineCanvas({
 
         // If machine was already in loading/mixing state when initialized, trigger corresponding physics actions
         if (machineStateRef.current === "Loading") {
-          physics.setMixingSpeed(config.paddleSpeed);
-          physics.startLoadingSequence(config.tubeStaggerSeconds || 0.3);
+          physics.setMixingSpeed(configRef.current.paddleSpeed);
+          physics.startLoadingSequence(configRef.current.tubeStaggerSeconds || 0.3);
         } else if (machineStateRef.current === "Mixing" || machineStateRef.current === "Capturing") {
-          physics.setMixingSpeed(config.paddleSpeed);
+          physics.setMixingSpeed(configRef.current.paddleSpeed);
           if (machineStateRef.current === "Capturing") {
             physics.setGateState(true);
           }
@@ -710,14 +716,14 @@ export default function DrawingMachineCanvas({
           if (loadingMeshes) {
             loadingMeshes.forEach((mesh, idx) => {
               const isOpen = loadingGateStates[idx];
-              const targetZ = isOpen ? config.drumDepth / 2 + 0.25 : 0;
+              const targetZ = isOpen ? configRef.current.drumDepth / 2 + 0.25 : 0;
               mesh.position.z = THREE.MathUtils.lerp(mesh.position.z, targetZ, 0.25);
             });
           }
 
           // 3. Lower extraction sliding gate visual animation (open / close)
           const gateMesh = machineComponentsRef.current.gateMesh;
-          const targetZ = physicsRef.current.isGateOpen ? -(config.drumDepth / 2 + 0.15) : 0;
+          const targetZ = physicsRef.current.isGateOpen ? -(configRef.current.drumDepth / 2 + 0.15) : 0;
           gateMesh.position.z = THREE.MathUtils.lerp(gateMesh.position.z, targetZ, 0.25);
         }
       }
@@ -814,8 +820,8 @@ export default function DrawingMachineCanvas({
           // Record extracted result with range limit annotation
           const newOrderIndex = extractedResultsRef.current.length + 1;
           const limit =
-            config.enableRangeLimits && config.rangeLimits
-              ? config.rangeLimits[transport.targetSlotIndex]
+            configRef.current.enableRangeLimits && configRef.current.rangeLimits
+              ? configRef.current.rangeLimits[transport.targetSlotIndex]
               : undefined;
 
           const result: ExtractedBallResult = {
@@ -831,7 +837,7 @@ export default function DrawingMachineCanvas({
           activeTransportBallRef.current = null;
 
           // If reached pickCount balls, complete session; otherwise transition to WaitingNext (5s interval)
-          if (extractedResultsRef.current.length >= config.pickCount) {
+          if (extractedResultsRef.current.length >= configRef.current.pickCount) {
             onMachineStateChangeRef.current("Completed");
           } else {
             onMachineStateChangeRef.current("WaitingNext");
@@ -986,7 +992,7 @@ export default function DrawingMachineCanvas({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [config, ballsData, isLowQuality, webGlSupported, onBallExtracted, onMachineStateChange]);
+  }, [isLowQuality, webGlSupported]);
 
   if (!webGlSupported) {
     return (
